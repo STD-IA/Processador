@@ -1,91 +1,106 @@
 import configparser
-import torch
-from torchvision import datasets
-from torchvision.transforms import v2
-import xmlrpc
-from xmlrpc.server import SimpleXMLRPCServer
-from xmlrpc.server import SimpleXMLRPCRequestHandler
 import socket
 import time
+import torch
+import xmlrpc.client
+from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
+from torchvision import datasets
+from torchvision.transforms import v2
 from cnn import CNN
 
-cnn = 0
-
 class RequestHandler(SimpleXMLRPCRequestHandler):
-    rpc_paths = ('/RPC2')
+    rpc_paths = ('/RPC2',)
 
-#Função de treinamento
-
-def treinar(model_name,epochs,learning_rate,weight_decay,replicacoes):
+def treinar(model_name, epochs, learning_rate, weight_decay, replicacoes):
+    """Executa o treinamento do modelo e retorna métricas."""
     inicio = time.time()
-    acc_media, rep_max = cnn.create_and_train_cnn(model_name,epochs,learning_rate,weight_decay,replicacoes)
-    fim = time.time()
-    duracao = fim - inicio
-    return f"{model_name}-{epochs}-{learning_rate}-{weight_decay}-Acurácia média: {acc_media} - Melhor replicação: {rep_max} - Tempo:{duracao}"
+    acc_media, rep_max = cnn.create_and_train_cnn(model_name, epochs, learning_rate, weight_decay, replicacoes)
+    duracao = time.time() - inicio
+    return f"{model_name}-{epochs}-{learning_rate}-{weight_decay}-Acurácia média: {acc_media} - Melhor replicação: {rep_max} - Tempo: {duracao}"  
 
-
-# Funções complementares
-
-def define_transforms(height, width):
-    data_transforms = {
+def transformacoes(height, width):
+    """Define as transformações para pré-processamento das imagens."""
+    return {
         'train': v2.Compose([
             v2.Resize((height, width)),
-            v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)]),
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
             v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]),
         'test': v2.Compose([
             v2.Resize((height, width)),
-            v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)]),
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
             v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
     }
-    return data_transforms
 
+def carregar_datasets(transforms):
+    """Carrega os datasets de treino, validação e teste."""
+    return (
+        datasets.ImageFolder('./data/resumido/train/', transform=transforms['train']),
+        datasets.ImageFolder('./data/resumido/validation/', transform=transforms['test']),
+        datasets.ImageFolder('./data/resumido/test/', transform=transforms['test'])
+    )
 
-def read_images(data_transforms):
-    train_data = datasets.ImageFolder('./data/resumido/train/', transform=data_transforms['train'])
-    validation_data = datasets.ImageFolder('./data/resumido/validation/', transform=data_transforms['test'])
-    test_data = datasets.ImageFolder('./data/resumido/test/', transform=data_transforms['test'])
-    return train_data, validation_data, test_data
-
-# Main
-
-if __name__ == "__main__":
-    # Criar CNN
-    data_transforms = define_transforms(224, 224)
-    train_data, validation_data, test_data = read_images(data_transforms)
-    cnn = CNN(train_data, validation_data, test_data, 8)
-    # Ler arquivo de configuração
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    # Configurar torch para usar todos os nucelos do processador
-    num_threads = config.get('Self','num_threads')
-    if(num_threads[0:4]=='auto'):
-        num_threads = torch.get_num_threads()*int(num_threads[4:])
+def config_processamento(config):
+    """Configura o número de threads para processamento no PyTorch."""
+    num_threads = config.get('Self', 'num_threads')
+    if num_threads.startswith('auto'):
+        num_threads = torch.get_num_threads() * int(num_threads[4:])
     else:
         num_threads = int(num_threads)
     torch.set_num_threads(num_threads)
-    # Inicializar servidor
-    print("Running Server...")
-    # Obter IP
-    myIP = config.get('Self','IP')
-    if(myIP == 'auto'):
-        hostname = socket.gethostname()
-        myIP = socket.gethostbyname(hostname)
-        print('Host name:', hostname, '\nIP:', myIP)
-    server = SimpleXMLRPCServer((myIP, 0), requestHandler=RequestHandler)
-    myPort = server.socket.getsockname()[1]
-    print(f"Server started at port {myPort}")
-    # Registrar função
-    print("Registring function...")
+
+def config_ip(config):
+    """Obtém o IP do servidor com base na configuração."""
+    ip = config.get('Self', 'IP')
+    if ip == 'auto':
+        return socket.gethostbyname(socket.gethostname())
+    return ip
+
+def registrar_servidor(name_server_ip, name_server_port, server_ip, server_port):
+    """Registra o servidor no Name Server."""
+    try:
+        client = xmlrpc.client.ServerProxy(f"http://{name_server_ip}:{name_server_port}")
+        return client.cadastrar_servidor(server_ip, server_port)
+    except Exception as e:
+        return f"Erro ao registrar no Name Server: {e}"
+
+def main():
+    global cnn
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+    
+    # Configuração do PyTorch
+    config_processamento(config)
+    
+    # Inicialização do modelo
+    transforms = transformacoes(224, 224)
+
+    train_data, validation_data, test_data = carregar_datasets(transforms)
+    
+    cnn = CNN(train_data, validation_data, test_data, 8)
+    
+    # Configuração do servidor
+    server_ip = get_server_ip(config)
+    server = SimpleXMLRPCServer((server_ip, 0), requestHandler=RequestHandler)
+    server_port = server.socket.getsockname()[1]
+    print(f"Servidor iniciado em {server_ip}:{server_port}")
+    
+    # Registrar função de treinamento
     server.register_function(treinar)
-    print("Function registered.")
-    # Se cadastrar no SDN
-    ip = config.get('NameServer','IP')
-    port = config.getint('NameServer','Port')
-    print("Registering at the Name Server...")
-    client = xmlrpc.client.ServerProxy(f"http://{ip}:{str(port)}")
-    print(client.cadastrar_servidor(myIP, myPort))
-    # Request Loop
-    print("Now serving. Waiting requests...")
+    print("Função de treinamento registrada.")
+    
+    # Registro no Name Server
+    name_server_ip = config.get('NameServer', 'IP')
+    name_server_port = config.getint('NameServer', 'Port')
+    print("Registrando no Name Server...")
+    print(registrar_servidor(name_server_ip, name_server_port, server_ip, server_port))
+    
+    # Iniciar loop de requisições
+    print("Servidor pronto para receber requisições.")
     server.serve_forever()
+
+if __name__ == "__main__":
+    main()
