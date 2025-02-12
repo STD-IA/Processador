@@ -83,7 +83,7 @@ def main():
     cnn = CNN(train_data, validation_data, test_data, 8)
     
     # Configuração do servidor
-    server_ip = get_server_ip(config)
+    server_ip = config_ip(config)
     server = SimpleXMLRPCServer((server_ip, 0), requestHandler=RequestHandler)
     server_port = server.socket.getsockname()[1]
     print(f"Servidor iniciado em {server_ip}:{server_port}")

@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import torch
 from torch import nn, optim
 from torch.utils import data
@@ -94,12 +95,16 @@ class CNN:
     def train_model(self, model, train_loader, optimizer, criterion, model_name, num_epochs, learning_rate, weight_decay, replicacao): 
         model.to(self.device)
         min_loss = 100
-        e_measures = []
+
+        diretorio_modelos = "./modelos"
+        if not os.path.exists(diretorio_modelos):
+            os.makedirs(diretorio_modelos)
+
         for i in (range(1,num_epochs+1)):
             train_loss = self.train_epoch(model, train_loader, optimizer, criterion)
             if (train_loss < min_loss):
                 min_loss = train_loss
-                nome_arquivo = f"./modelos/{model_name}_{num_epochs}_{learning_rate}_{weight_decay}_{replicacao}.pth"
+                nome_arquivo = f"{diretorio_modelos}/{model_name}_{num_epochs}_{learning_rate}_{weight_decay}_{replicacao}.pth"
                 torch.save(model.state_dict(), nome_arquivo)
 
     def train_epoch(self,model, trainLoader, optimizer, criterion):
