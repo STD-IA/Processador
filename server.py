@@ -60,12 +60,12 @@ def config_ip(config):
     return ip
 
 def registrar_servidor(name_server_ip, name_server_port, server_ip, server_port):
-    """Registra o servidor no Name Server."""
+    """Registra o servidor no Servidor de Nomes."""
     try:
         client = xmlrpc.client.ServerProxy(f"http://{name_server_ip}:{name_server_port}")
         return client.cadastrar_servidor(server_ip, server_port)
     except Exception as e:
-        return f"Erro ao registrar no Name Server: {e}"
+        return f"Erro ao registrar no Servidor de Nomes: {e}"
 
 def main():
     global cnn
@@ -78,9 +78,9 @@ def main():
     # Inicialização do modelo
     transforms = transformacoes(224, 224)
 
-    train_data, validation_data, test_data = carregar_datasets(transforms)
+    dados_treino, dados_validacao, dados_teste = carregar_datasets(transforms)
     
-    cnn = CNN(train_data, validation_data, test_data, 8)
+    cnn = CNN(dados_treino, dados_validacao, dados_teste, 8)
     
     # Configuração do servidor
     server_ip = config_ip(config)
@@ -92,10 +92,10 @@ def main():
     server.register_function(treinar)
     print("Função de treinamento registrada.")
     
-    # Registro no Name Server
+    # Registro no Servidor de Nomes
     name_server_ip = config.get('NameServer', 'IP')
     name_server_port = config.getint('NameServer', 'Port')
-    print("Registrando no Name Server...")
+    print("Registrando no Servidor de nomes...")
     print(registrar_servidor(name_server_ip, name_server_port, server_ip, server_port))
     
     # Iniciar loop de requisições
